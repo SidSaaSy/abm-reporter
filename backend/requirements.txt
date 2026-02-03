@@ -6,7 +6,4 @@ httpx==0.26.0
 pydantic==2.5.3
 pydantic-settings==2.1.0
 simple-salesforce==1.12.5
-hubspot-api-client==8.1.0
-pandas==2.1.4
 python-multipart==0.0.6
-aiofiles==23.2.1
