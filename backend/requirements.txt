@@ -7,3 +7,4 @@ pydantic==2.5.3
 pydantic-settings==2.1.0
 simple-salesforce==1.12.5
 python-multipart==0.0.6
+pandas>=2.0.0
