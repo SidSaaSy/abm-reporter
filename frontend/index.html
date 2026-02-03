@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ABM Reporter - Live Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+            line-height: 1.5;
+        }
+
+        /* Header */
+        .header {
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 0 24px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header-inner {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .logo-icon { font-size: 28px; }
+        .logo-text h1 { font-size: 20px; font-weight: 700; color: #0f172a; }
+        .logo-text p { font-size: 12px; color: #64748b; }
+        .header-right { display: flex; align-items: center; gap: 16px; }
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .status-live { background: #dcfce7; color: #16a34a; }
+        .status-loading { background: #fef3c7; color: #d97706; }
+        .status-error { background: #fee2e2; color: #dc2626; }
+        .refresh-btn {
+            padding: 8px 16px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .refresh-btn:hover { background: #2563eb; }
+        .refresh-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        .integrations { display: flex; gap: 8px; }
+        .integration-badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .int-connected { background: #dcfce7; color: #16a34a; }
+        .int-disconnected { background: #f1f5f9; color: #94a3b8; }
+
+        /* Main */
+        .main {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .loading-overlay.hidden { display: none; }
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid #e2e8f0;
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { margin-top: 16px; color: #64748b; font-size: 14px; }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        @media (max-width: 1200px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 768px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #e2e8f0;
+            transition: box-shadow 0.2s;
+        }
+        .stat-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        .stat-card-content { display: flex; justify-content: space-between; align-items: center; }
+        .stat-label { font-size: 13px; color: #64748b; margin-bottom: 4px; }
+        .stat-value { font-size: 24px; font-weight: 700; color: #0f172a; }
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+        .icon-blue { background: #dbeafe; }
+        .icon-green { background: #dcfce7; }
+        .icon-purple { background: #f3e8ff; }
+        .icon-orange { background: #ffedd5; }
+        .icon-pink { background: #fce7f3; }
+        .icon-indigo { background: #e0e7ff; }
+
+        /* Charts Section */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+        @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+
+        .chart-card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid #e2e8f0;
+        }
+        .chart-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #475569;
+            margin-bottom: 20px;
+        }
+        .bar-chart { display: flex; flex-direction: column; gap: 12px; }
+        .bar-row { display: flex; align-items: center; gap: 12px; }
+        .bar-label { width: 100px; font-size: 13px; color: #475569; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .bar-container { flex: 1; height: 28px; background: #f1f5f9; border-radius: 6px; overflow: hidden; }
+        .bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #60a5fa);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 8px;
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            min-width: 40px;
+        }
+
+        .donut-chart {
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+        }
+        .donut-visual {
+            width: 160px;
+            height: 160px;
+            border-radius: 50%;
+            position: relative;
+        }
+        .donut-legend { display: flex; flex-direction: column; gap: 12px; }
+        .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+        .legend-color { width: 12px; height: 12px; border-radius: 3px; }
+
+        /* Toolbar */
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .search-box {
+            position: relative;
+        }
+        .search-box input {
+            width: 320px;
+            padding: 10px 16px 10px 40px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .search-box input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #94a3b8;
+        }
+        .last-updated { font-size: 13px; color: #64748b; }
+
+        /* Table */
+        .table-container {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            overflow: hidden;
+        }
+        .table-scroll { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; min-width: 1200px; }
+        thead { background: #f8fafc; }
+        th {
+            padding: 14px 16px;
+            text-align: left;
+            font-size: 11px;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #e2e8f0;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+        th:hover { background: #f1f5f9; }
+        th.text-center { text-align: center; }
+        th.text-right { text-align: right; }
+        td {
+            padding: 14px 16px;
+            font-size: 14px;
+            color: #475569;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        td.text-center { text-align: center; }
+        td.text-right { text-align: right; }
+        tbody tr:hover { background: #f8fafc; }
+        .account-name { font-weight: 600; color: #0f172a; }
+        .domain-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #f1f5f9;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #64748b;
+            margin-right: 4px;
+            margin-bottom: 4px;
+        }
+        .pipeline-value { font-weight: 600; color: #16a34a; }
+        .pipeline-zero { color: #94a3b8; font-weight: 400; }
+
+        .opp-badges { display: flex; justify-content: center; gap: 4px; }
+        .opp-badge {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .opp-open { background: #dbeafe; color: #1d4ed8; }
+        .opp-won { background: #dcfce7; color: #16a34a; }
+        .opp-lost { background: #fee2e2; color: #dc2626; }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 24px;
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        /* Error banner */
+        .error-banner {
+            background: #fee2e2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+            color: #dc2626;
+        }
+        .error-banner.hidden { display: none; }
+    </style>
+</head>
+<body>
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Loading your ABM data...</div>
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-inner">
+            <div class="logo">
+                <span class="logo-icon">🎯</span>
+                <div class="logo-text">
+                    <h1>ABM Reporter</h1>
+                    <p>Account-Based Marketing Dashboard</p>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="integrations" id="integrations"></div>
+                <span class="status-badge status-live" id="statusBadge">
+                    <span>●</span> Live
+                </span>
+                <button class="refresh-btn" id="refreshBtn" onclick="loadData(true)">
+                    🔄 Refresh
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+        <!-- Error Banner -->
+        <div class="error-banner hidden" id="errorBanner"></div>
+
+        <!-- Stats Cards -->
+        <div class="stats-grid" id="statsGrid"></div>
+
+        <!-- Charts -->
+        <div class="charts-grid">
+            <div class="chart-card">
+                <h3 class="chart-title">Top Accounts by Pipeline</h3>
+                <div class="bar-chart" id="pipelineChart"></div>
+            </div>
+            <div class="chart-card">
+                <h3 class="chart-title">Engagement by Channel</h3>
+                <div class="donut-chart" id="engagementChart"></div>
+            </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="searchInput" placeholder="Search accounts or domains...">
+            </div>
+            <span class="last-updated" id="lastUpdated"></span>
+        </div>
+
+        <!-- Table -->
+        <div class="table-container">
+            <div class="table-scroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th data-sort="account_name">Account Name</th>
+                            <th>Domains</th>
+                            <th class="text-center" data-sort="sfdc_contacts">SFDC Contacts</th>
+                            <th class="text-center" data-sort="hubspot_contacts">HubSpot Contacts</th>
+                            <th class="text-center" data-sort="linkedin_organic_impressions">LinkedIn Organic</th>
+                            <th class="text-center" data-sort="linkedin_ad_impressions">LinkedIn Ads</th>
+                            <th class="text-center" data-sort="form_submissions">Form Submissions</th>
+                            <th class="text-center" data-sort="website_sessions">Website Sessions</th>
+                            <th class="text-center">Opportunities</th>
+                            <th class="text-right" data-sort="pipeline_value">Pipeline</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer" id="footer"></div>
+    </main>
+
+    <script>
+        // API Configuration
+        const API_BASE = 'https://abm-reporter.onrender.com';
+
+        // State
+        let accounts = [];
+        let sortKey = 'pipeline_value';
+        let sortDir = 'desc';
+        let searchQuery = '';
+        let lastSynced = null;
+
+        // Format currency
+        function formatCurrency(value) {
+            if (!value) return '$0';
+            return '$' + value.toLocaleString();
+        }
+
+        // Show/hide loading
+        function setLoading(loading) {
+            document.getElementById('loadingOverlay').classList.toggle('hidden', !loading);
+            document.getElementById('refreshBtn').disabled = loading;
+        }
+
+        // Show error
+        function showError(message) {
+            const banner = document.getElementById('errorBanner');
+            banner.textContent = '⚠️ ' + message;
+            banner.classList.remove('hidden');
+        }
+
+        // Hide error
+        function hideError() {
+            document.getElementById('errorBanner').classList.add('hidden');
+        }
+
+        // Update status badge
+        function setStatus(status) {
+            const badge = document.getElementById('statusBadge');
+            badge.className = 'status-badge status-' + status;
+            badge.innerHTML = status === 'live' ? '<span>●</span> Live' :
+                             status === 'loading' ? '<span>◌</span> Loading...' :
+                             '<span>●</span> Error';
+        }
+
+        // Fetch integrations status
+        async function loadIntegrations() {
+            try {
+                const res = await fetch(API_BASE + '/api/v1/integrations/status');
+                const data = await res.json();
+
+                const container = document.getElementById('integrations');
+                container.innerHTML = `
+                    <span class="integration-badge ${data.salesforce?.configured ? 'int-connected' : 'int-disconnected'}">
+                        ☁️ SFDC ${data.salesforce?.configured ? '✓' : ''}
+                    </span>
+                    <span class="integration-badge ${data.hubspot?.configured ? 'int-connected' : 'int-disconnected'}">
+                        🧡 HubSpot ${data.hubspot?.configured ? '✓' : ''}
+                    </span>
+                    <span class="integration-badge ${data.linkedin?.configured ? 'int-connected' : 'int-disconnected'}">
+                        💼 LinkedIn ${data.linkedin?.configured ? '✓' : ''}
+                    </span>
+                    <span class="integration-badge ${data.factors?.configured ? 'int-connected' : 'int-disconnected'}">
+                        📊 Factors ${data.factors?.configured ? '✓' : ''}
+                    </span>
+                `;
+            } catch (e) {
+                console.error('Failed to load integrations:', e);
+            }
+        }
+
+        // Load data from API
+        async function loadData(forceRefresh = false) {
+            setLoading(true);
+            setStatus('loading');
+            hideError();
+
+            try {
+                const url = forceRefresh ?
+                    API_BASE + '/api/v1/accounts?refresh=true' :
+                    API_BASE + '/api/v1/accounts';
+
+                const res = await fetch(url);
+
+                if (!res.ok) throw new Error('Failed to fetch data');
+
+                const data = await res.json();
+                accounts = data.accounts || [];
+                lastSynced = data.last_synced;
+
+                setStatus('live');
+                renderAll();
+            } catch (e) {
+                console.error('API Error:', e);
+                showError('Could not load live data. The API may be starting up (free tier takes ~30s). Try refreshing in a moment.');
+                setStatus('error');
+
+                // Show empty state
+                if (accounts.length === 0) {
+                    accounts = [];
+                    renderAll();
+                }
+            }
+
+            setLoading(false);
+        }
+
+        // Get filtered and sorted accounts
+        function getFilteredAccounts() {
+            let filtered = accounts.filter(a => {
+                if (!searchQuery) return true;
+                const q = searchQuery.toLowerCase();
+                const name = (a.account_name || '').toLowerCase();
+                const domains = a.domains || [];
+                return name.includes(q) || domains.some(d => d.toLowerCase().includes(q));
+            });
+
+            filtered.sort((a, b) => {
+                const aVal = a[sortKey] || 0;
+                const bVal = b[sortKey] || 0;
+                if (typeof aVal === 'string') {
+                    return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+                }
+                return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+            });
+
+            return filtered;
+        }
+
+        // Render stats cards
+        function renderStats() {
+            const data = getFilteredAccounts();
+            const stats = [
+                { icon: '🏢', label: 'Total Accounts', value: data.length, color: 'blue' },
+                { icon: '💰', label: 'Total Pipeline', value: formatCurrency(data.reduce((s, a) => s + (a.pipeline_value || 0), 0)), color: 'green' },
+                { icon: '👥', label: 'Total Contacts', value: data.reduce((s, a) => s + (a.total_contacts || a.sfdc_contacts || 0) + (a.hubspot_contacts || 0), 0).toLocaleString(), color: 'purple' },
+                { icon: '🌐', label: 'Website Sessions', value: data.reduce((s, a) => s + (a.website_sessions || 0), 0).toLocaleString(), color: 'orange' },
+                { icon: '📝', label: 'Form Submissions', value: data.reduce((s, a) => s + (a.form_submissions || 0), 0), color: 'pink' },
+                { icon: '🎯', label: 'With Open Opps', value: data.filter(a => (a.open_opportunities || 0) > 0).length, color: 'indigo' }
+            ];
+
+            document.getElementById('statsGrid').innerHTML = stats.map(s => `
+                <div class="stat-card">
+                    <div class="stat-card-content">
+                        <div>
+                            <div class="stat-label">${s.label}</div>
+                            <div class="stat-value">${s.value}</div>
+                        </div>
+                        <div class="stat-icon icon-${s.color}">${s.icon}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Render pipeline chart
+        function renderPipelineChart() {
+            const data = getFilteredAccounts()
+                .filter(a => a.pipeline_value > 0)
+                .sort((a, b) => b.pipeline_value - a.pipeline_value)
+                .slice(0, 5);
+
+            if (data.length === 0) {
+                document.getElementById('pipelineChart').innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 40px;">No pipeline data available</p>';
+                return;
+            }
+
+            const maxPipeline = Math.max(...data.map(a => a.pipeline_value));
+
+            document.getElementById('pipelineChart').innerHTML = data.map(a => `
+                <div class="bar-row">
+                    <div class="bar-label" title="${a.account_name}">${a.account_name}</div>
+                    <div class="bar-container">
+                        <div class="bar-fill" style="width: ${(a.pipeline_value / maxPipeline * 100)}%">
+                            $${Math.round(a.pipeline_value / 1000)}K
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Render engagement chart
+        function renderEngagementChart() {
+            const data = getFilteredAccounts();
+            const channels = [
+                { name: 'Website Sessions', value: data.reduce((s, a) => s + (a.website_sessions || 0), 0), color: '#3b82f6' },
+                { name: 'LinkedIn Ads', value: data.reduce((s, a) => s + (a.linkedin_ad_impressions || 0), 0), color: '#22c55e' },
+                { name: 'LinkedIn Organic', value: data.reduce((s, a) => s + (a.linkedin_organic_impressions || 0), 0), color: '#f59e0b' }
+            ];
+            const total = channels.reduce((s, c) => s + c.value, 0);
+
+            if (total === 0) {
+                document.getElementById('engagementChart').innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 40px;">No engagement data available</p>';
+                return;
+            }
+
+            let gradient = '';
+            let cumulative = 0;
+            channels.forEach(c => {
+                const percent = (c.value / total) * 100;
+                gradient += `${c.color} ${cumulative}% ${cumulative + percent}%, `;
+                cumulative += percent;
+            });
+            gradient = gradient.slice(0, -2);
+
+            document.getElementById('engagementChart').innerHTML = `
+                <div class="donut-visual" style="background: conic-gradient(${gradient}); display: flex; align-items: center; justify-content: center;">
+                    <div style="width: 80px; height: 80px; background: white; border-radius: 50%;"></div>
+                </div>
+                <div class="donut-legend">
+                    ${channels.map(c => `
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: ${c.color}"></div>
+                            <span>${c.name}: ${c.value.toLocaleString()}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        // Render table
+        function renderTable() {
+            const data = getFilteredAccounts();
+
+            if (data.length === 0) {
+                document.getElementById('tableBody').innerHTML = `
+                    <tr>
+                        <td colspan="10" style="text-align: center; padding: 40px; color: #94a3b8;">
+                            No accounts found. Data will appear here once loaded from your integrations.
+                        </td>
+                    </tr>
+                `;
+            } else {
+                document.getElementById('tableBody').innerHTML = data.map(a => `
+                    <tr>
+                        <td class="account-name">${a.account_name || 'Unknown'}</td>
+                        <td>${(a.domains || []).map(d => `<span class="domain-badge">${d}</span>`).join('') || '-'}</td>
+                        <td class="text-center">${a.sfdc_contacts || 0}</td>
+                        <td class="text-center">${a.hubspot_contacts || 0}</td>
+                        <td class="text-center">${a.linkedin_organic_impressions || 0}</td>
+                        <td class="text-center">${a.linkedin_ad_impressions || 0}</td>
+                        <td class="text-center">${a.form_submissions || 0}</td>
+                        <td class="text-center">${a.website_sessions || 0}</td>
+                        <td class="text-center">
+                            <div class="opp-badges">
+                                ${(a.open_opportunities || 0) > 0 ? `<span class="opp-badge opp-open" title="Open">${a.open_opportunities}</span>` : ''}
+                                ${(a.closed_won || 0) > 0 ? `<span class="opp-badge opp-won" title="Won">${a.closed_won}</span>` : ''}
+                                ${(a.closed_lost || 0) > 0 ? `<span class="opp-badge opp-lost" title="Lost">${a.closed_lost}</span>` : ''}
+                                ${!a.open_opportunities && !a.closed_won && !a.closed_lost ? '-' : ''}
+                            </div>
+                        </td>
+                        <td class="text-right ${(a.pipeline_value || 0) > 0 ? 'pipeline-value' : 'pipeline-zero'}">${formatCurrency(a.pipeline_value)}</td>
+                    </tr>
+                `).join('');
+            }
+
+            document.getElementById('footer').innerHTML = `Showing ${data.length} of ${accounts.length} accounts`;
+
+            // Update last updated time
+            if (lastSynced) {
+                const date = new Date(lastSynced);
+                document.getElementById('lastUpdated').textContent = `Last synced: ${date.toLocaleTimeString()}`;
+            }
+        }
+
+        // Render all
+        function renderAll() {
+            renderStats();
+            renderPipelineChart();
+            renderEngagementChart();
+            renderTable();
+        }
+
+        // Event: Search
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            searchQuery = e.target.value;
+            renderAll();
+        });
+
+        // Event: Sort
+        document.querySelectorAll('th[data-sort]').forEach(th => {
+            th.addEventListener('click', () => {
+                const key = th.dataset.sort;
+                if (sortKey === key) {
+                    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortKey = key;
+                    sortDir = 'desc';
+                }
+                renderAll();
+            });
+        });
+
+        // Initial load
+        loadIntegrations();
+        loadData();
+    </script>
+</body>
+</html>
