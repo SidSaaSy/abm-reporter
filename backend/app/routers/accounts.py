@@ -2,9 +2,9 @@
 ABM Reporter - Account API Routes
 """
 from fastapi import APIRouter, Depends, Query, HTTPException, UploadFile, File
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime, timedelta
-
+from pydantic import BaseModel
 from ..models.account import AccountEngagement, AccountList, AccountFilter
 from ..services.aggregator import get_aggregator, ABMDataAggregator
 from ..integrations.csv_handler import get_csv_handler
@@ -12,7 +12,16 @@ from ..integrations.csv_handler import get_csv_handler
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
 
-@router.get("/", response_model=AccountList)
+class AccountListWithSummary(BaseModel):
+    """Account list with summary statistics"""
+    accounts: List[AccountEngagement]
+    total_count: int
+    last_synced: datetime
+    # Summary stats from ALL accounts (not just paginated)
+    summary: dict
+
+
+@router.get("/", response_model=AccountListWithSummary)
 async def get_accounts(
         search: Optional[str] = Query(None, description="Search by account name or domain"),
         min_pipeline: Optional[float] = Query(None, description="Minimum pipeline value"),
@@ -32,7 +41,7 @@ async def get_accounts(
     """
     # Parse industries
     industry_list = industries.split(',') if industries else None
-
+    
     # Build filters
     filters = AccountFilter(
         search_query=search,
@@ -46,17 +55,37 @@ async def get_accounts(
         page=page,
         page_size=page_size
     )
-
+    
     # Get aggregated data
     all_data = await aggregator.aggregate_account_data(force_refresh=refresh)
-
-    # Apply filters
-    filtered_accounts = aggregator.filter_accounts(all_data.accounts, filters)
-
-    return AccountList(
+    
+    # Calculate summary stats from ALL accounts BEFORE pagination
+    all_accounts = all_data.accounts
+    total_pipeline = sum(a.pipeline_value for a in all_accounts)
+    total_contacts = sum(a.total_contacts for a in all_accounts)
+    total_sfdc_contacts = sum(a.sfdc_contacts for a in all_accounts)
+    total_hubspot_contacts = sum(a.hubspot_contacts for a in all_accounts)
+    total_sessions = sum(a.website_sessions for a in all_accounts)
+    total_submissions = sum(a.form_submissions for a in all_accounts)
+    accounts_with_opps = len([a for a in all_accounts if a.open_opportunities > 0])
+    
+    # Apply filters (includes pagination)
+    filtered_accounts = aggregator.filter_accounts(all_accounts, filters)
+    
+    return AccountListWithSummary(
         accounts=filtered_accounts,
-        total_count=len(all_data.accounts),  # Total before filtering
-        last_synced=all_data.last_synced
+        total_count=len(all_accounts),
+        last_synced=all_data.last_synced,
+        summary={
+            "total_accounts": len(all_accounts),
+            "total_pipeline": total_pipeline,
+            "total_contacts": total_contacts,
+            "total_sfdc_contacts": total_sfdc_contacts,
+            "total_hubspot_contacts": total_hubspot_contacts,
+            "total_website_sessions": total_sessions,
+            "total_form_submissions": total_submissions,
+            "accounts_with_open_opportunities": accounts_with_opps
+        }
     )
 
 
@@ -69,12 +98,11 @@ async def get_account_detail(
     Get detailed data for a specific account
     """
     all_data = await aggregator.aggregate_account_data()
-
-    # Find account by name (case-insensitive)
+    
     for account in all_data.accounts:
         if account.account_name.lower() == account_name.lower():
             return account
-
+    
     raise HTTPException(status_code=404, detail=f"Account '{account_name}' not found")
 
 
@@ -86,8 +114,6 @@ async def get_account_contacts(
     """
     Get contacts for a specific account
     """
-    # This would fetch contacts from both SFDC and HubSpot
-    # Implementation depends on having account IDs mapped
     return {"message": "Contact details endpoint - requires account ID mapping"}
 
 
@@ -96,7 +122,6 @@ async def get_account_opportunities(account_name: str):
     """
     Get opportunities for a specific account
     """
-    # This would fetch opportunities from Salesforce
     return {"message": "Opportunities endpoint - requires SFDC account ID"}
 
 
@@ -107,9 +132,7 @@ async def get_account_engagement_timeline(
 ):
     """
     Get engagement timeline for a specific account
-    Shows touchpoints across all channels over time
     """
-    # This would aggregate timeline data from all sources
     return {"message": "Engagement timeline endpoint"}
 
 
@@ -122,16 +145,15 @@ async def upload_fibbler_data(
     """
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="File must be a CSV")
-
+    
     csv_handler = get_csv_handler()
-
+    
     try:
         content = await file.read()
         data = csv_handler.parse_fibbler_csv(content)
-
         return {
             "message": f"Successfully parsed {len(data)} accounts from Fibbler export",
-            "accounts": data[:10]  # Return first 10 as preview
+            "accounts": data[:10]
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -146,16 +168,15 @@ async def upload_linkedin_ads_data(
     """
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="File must be a CSV")
-
+    
     csv_handler = get_csv_handler()
-
+    
     try:
         content = await file.read()
         data = csv_handler.parse_linkedin_ads_csv(content)
-
         return {
             "message": f"Successfully parsed {len(data)} records from LinkedIn Ads export",
-            "records": data[:10]  # Return first 10 as preview
+            "records": data[:10]
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -170,7 +191,7 @@ async def refresh_data(
     """
     aggregator.invalidate_cache()
     data = await aggregator.aggregate_account_data(force_refresh=True)
-
+    
     return {
         "message": "Data refreshed successfully",
         "total_accounts": data.total_count,
@@ -186,13 +207,13 @@ async def get_summary_stats(
     Get summary statistics across all accounts
     """
     data = await aggregator.aggregate_account_data()
-
+    
     total_pipeline = sum(a.pipeline_value for a in data.accounts)
     total_contacts = sum(a.total_contacts for a in data.accounts)
     total_sessions = sum(a.website_sessions for a in data.accounts)
     total_submissions = sum(a.form_submissions for a in data.accounts)
     accounts_with_opps = len([a for a in data.accounts if a.open_opportunities > 0])
-
+    
     return {
         "total_accounts": data.total_count,
         "total_pipeline": total_pipeline,
