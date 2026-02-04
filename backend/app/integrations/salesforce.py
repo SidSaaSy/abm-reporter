@@ -7,7 +7,6 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta
 from simple_salesforce import Salesforce
 from simple_salesforce.exceptions import SalesforceError
-
 from ..config import get_settings
 from ..models.account import Contact, Opportunity
 
@@ -16,11 +15,11 @@ logger = logging.getLogger(__name__)
 
 class SalesforceClient:
     """Salesforce API client for ABM data"""
-
+    
     def __init__(self):
         self.settings = get_settings()
         self._client: Optional[Salesforce] = None
-
+    
     def _get_client(self) -> Salesforce:
         """Get or create Salesforce client"""
         if self._client is None:
@@ -36,14 +35,14 @@ class SalesforceClient:
                 logger.error(f"Failed to connect to Salesforce: {e}")
                 raise
         return self._client
-
+    
     async def get_accounts(self, domains: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Fetch accounts from Salesforce
         Optionally filter by website domains
         """
         sf = self._get_client()
-
+        
         query = """
             SELECT Id, Name, Website, Industry, NumberOfEmployees,
                    AnnualRevenue, BillingCity, BillingCountry, Type,
@@ -51,14 +50,13 @@ class SalesforceClient:
             FROM Account
             WHERE IsDeleted = false
         """
-
+        
         if domains:
-            # Build domain filter
             domain_conditions = " OR ".join([f"Website LIKE '%{d}%'" for d in domains])
             query += f" AND ({domain_conditions})"
-
+        
         query += " ORDER BY Name"
-
+        
         try:
             result = sf.query_all(query)
             accounts = result.get('records', [])
@@ -67,18 +65,18 @@ class SalesforceClient:
         except SalesforceError as e:
             logger.error(f"Error fetching accounts: {e}")
             raise
-
+    
     async def get_contacts_by_account(self, account_id: str) -> List[Contact]:
         """Fetch all contacts for a specific account"""
         sf = self._get_client()
-
+        
         query = f"""
             SELECT Id, Email, FirstName, LastName, Title, AccountId, CreatedDate
             FROM Contact
             WHERE AccountId = '{account_id}'
             AND IsDeleted = false
         """
-
+        
         try:
             result = sf.query_all(query)
             contacts = [
@@ -120,13 +118,12 @@ class SalesforceClient:
             }
         except SalesforceError as e:
             logger.error(f"Error fetching contact counts: {e}")
-            # Return empty dict instead of failing - graceful degradation
             return {}
     
     async def get_opportunities_by_account(self, account_id: str) -> List[Opportunity]:
         """Fetch all opportunities for a specific account"""
         sf = self._get_client()
-
+        
         query = f"""
             SELECT Id, Name, Amount, StageName, CloseDate,
                    IsWon, IsClosed, AccountId, CreatedDate
@@ -134,7 +131,7 @@ class SalesforceClient:
             WHERE AccountId = '{account_id}'
             AND IsDeleted = false
         """
-
+        
         try:
             result = sf.query_all(query)
             opportunities = [
@@ -164,39 +161,40 @@ class SalesforceClient:
         Returns: {account_id: {open_opps, closed_won, closed_lost, pipeline_value}}
         """
         sf = self._get_client()
-
-        # Get open opportunities
+        
+        # Use query() not query_all() - aggregate queries don't support pagination
+        # Added LIMIT 2000 for each query
         open_query = """
             SELECT AccountId, COUNT(Id) oppCount, SUM(Amount) totalAmount
             FROM Opportunity
             WHERE IsClosed = false AND AccountId != null
             GROUP BY AccountId
+            LIMIT 2000
         """
-
-        # Get closed won
+        
         won_query = """
             SELECT AccountId, COUNT(Id) oppCount, SUM(Amount) totalAmount
             FROM Opportunity
             WHERE IsWon = true AND AccountId != null
             GROUP BY AccountId
+            LIMIT 2000
         """
-
-        # Get closed lost
+        
         lost_query = """
             SELECT AccountId, COUNT(Id) oppCount
             FROM Opportunity
             WHERE IsClosed = true AND IsWon = false AND AccountId != null
             GROUP BY AccountId
+            LIMIT 2000
         """
-
+        
         try:
-            open_result = sf.query_all(open_query)
-            won_result = sf.query_all(won_query)
-            lost_result = sf.query_all(lost_query)
-
+            open_result = sf.query(open_query)
+            won_result = sf.query(won_query)
+            lost_result = sf.query(lost_query)
+            
             summary = {}
-
-            # Process open opportunities
+            
             for record in open_result.get('records', []):
                 account_id = record['AccountId']
                 summary[account_id] = {
@@ -205,37 +203,35 @@ class SalesforceClient:
                     'closed_won': 0,
                     'closed_lost': 0
                 }
-
-            # Process closed won
+            
             for record in won_result.get('records', []):
                 account_id = record['AccountId']
                 if account_id not in summary:
                     summary[account_id] = {'open_opps': 0, 'pipeline_value': 0, 'closed_won': 0, 'closed_lost': 0}
                 summary[account_id]['closed_won'] = record['oppCount']
-
-            # Process closed lost
+            
             for record in lost_result.get('records', []):
                 account_id = record['AccountId']
                 if account_id not in summary:
                     summary[account_id] = {'open_opps': 0, 'pipeline_value': 0, 'closed_won': 0, 'closed_lost': 0}
                 summary[account_id]['closed_lost'] = record['oppCount']
-
+            
             return summary
         except SalesforceError as e:
             logger.error(f"Error fetching opportunity summary: {e}")
-            raise
+            return {}
 
     async def search_accounts_by_domain(self, domain: str) -> List[Dict[str, Any]]:
         """Search for accounts by website domain"""
         sf = self._get_client()
-
+        
         query = f"""
             SELECT Id, Name, Website, Industry, NumberOfEmployees, AnnualRevenue
             FROM Account
             WHERE Website LIKE '%{domain}%'
             AND IsDeleted = false
         """
-
+        
         try:
             result = sf.query_all(query)
             return result.get('records', [])
@@ -246,9 +242,8 @@ class SalesforceClient:
     async def get_recently_modified_accounts(self, days: int = 7) -> List[Dict[str, Any]]:
         """Get accounts modified in the last N days"""
         sf = self._get_client()
-
         cutoff_date = (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')
-
+        
         query = f"""
             SELECT Id, Name, Website, Industry, LastModifiedDate
             FROM Account
@@ -256,7 +251,7 @@ class SalesforceClient:
             AND IsDeleted = false
             ORDER BY LastModifiedDate DESC
         """
-
+        
         try:
             result = sf.query_all(query)
             return result.get('records', [])
