@@ -162,61 +162,49 @@ class SalesforceClient:
         """
         sf = self._get_client()
         
-        # Use query() not query_all() - aggregate queries don't support pagination
-        # Added LIMIT 2000 for each query
-        open_query = """
-            SELECT AccountId, COUNT(Id) oppCount, SUM(Amount) totalAmount
+        # Query all opportunities (non-aggregate) - this supports pagination
+        query = """
+            SELECT Id, AccountId, Amount, IsClosed, IsWon
             FROM Opportunity
-            WHERE IsClosed = false AND AccountId != null
-            GROUP BY AccountId
-            LIMIT 2000
-        """
-        
-        won_query = """
-            SELECT AccountId, COUNT(Id) oppCount, SUM(Amount) totalAmount
-            FROM Opportunity
-            WHERE IsWon = true AND AccountId != null
-            GROUP BY AccountId
-            LIMIT 2000
-        """
-        
-        lost_query = """
-            SELECT AccountId, COUNT(Id) oppCount
-            FROM Opportunity
-            WHERE IsClosed = true AND IsWon = false AND AccountId != null
-            GROUP BY AccountId
-            LIMIT 2000
+            WHERE AccountId != null
         """
         
         try:
-            open_result = sf.query(open_query)
-            won_result = sf.query(won_query)
-            lost_result = sf.query(lost_query)
+            result = sf.query_all(query)
+            opportunities = result.get('records', [])
+            logger.info(f"Fetched {len(opportunities)} opportunities from Salesforce")
             
+            # Aggregate in Python
             summary = {}
             
-            for record in open_result.get('records', []):
-                account_id = record['AccountId']
-                summary[account_id] = {
-                    'open_opps': record['oppCount'],
-                    'pipeline_value': record['totalAmount'] or 0,
-                    'closed_won': 0,
-                    'closed_lost': 0
-                }
-            
-            for record in won_result.get('records', []):
-                account_id = record['AccountId']
+            for opp in opportunities:
+                account_id = opp.get('AccountId')
+                if not account_id:
+                    continue
+                    
                 if account_id not in summary:
-                    summary[account_id] = {'open_opps': 0, 'pipeline_value': 0, 'closed_won': 0, 'closed_lost': 0}
-                summary[account_id]['closed_won'] = record['oppCount']
+                    summary[account_id] = {
+                        'open_opps': 0,
+                        'pipeline_value': 0,
+                        'closed_won': 0,
+                        'closed_lost': 0
+                    }
+                
+                is_closed = opp.get('IsClosed', False)
+                is_won = opp.get('IsWon', False)
+                amount = opp.get('Amount') or 0
+                
+                if not is_closed:
+                    summary[account_id]['open_opps'] += 1
+                    summary[account_id]['pipeline_value'] += amount
+                elif is_won:
+                    summary[account_id]['closed_won'] += 1
+                else:
+                    summary[account_id]['closed_lost'] += 1
             
-            for record in lost_result.get('records', []):
-                account_id = record['AccountId']
-                if account_id not in summary:
-                    summary[account_id] = {'open_opps': 0, 'pipeline_value': 0, 'closed_won': 0, 'closed_lost': 0}
-                summary[account_id]['closed_lost'] = record['oppCount']
-            
+            logger.info(f"Aggregated opportunities for {len(summary)} accounts")
             return summary
+            
         except SalesforceError as e:
             logger.error(f"Error fetching opportunity summary: {e}")
             return {}
