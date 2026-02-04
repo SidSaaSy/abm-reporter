@@ -100,7 +100,7 @@ class SalesforceClient:
             logger.error(f"Error fetching contacts for account {account_id}: {e}")
             raise
 
-        async def get_contacts_count_by_account(self) -> Dict[str, int]:
+    async def get_contacts_count_by_account(self) -> Dict[str, int]:
         """Get contact counts grouped by account"""
         sf = self._get_client()
         # Use query() not query_all() - aggregate queries don't support pagination
