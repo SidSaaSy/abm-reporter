@@ -207,13 +207,16 @@ async def get_summary_stats(
     Get summary statistics across all accounts
     """
     data = await aggregator.aggregate_account_data()
-    
+
     total_pipeline = sum(a.pipeline_value for a in data.accounts)
     total_contacts = sum(a.total_contacts for a in data.accounts)
     total_sessions = sum(a.website_sessions for a in data.accounts)
     total_submissions = sum(a.form_submissions for a in data.accounts)
     accounts_with_opps = len([a for a in data.accounts if a.open_opportunities > 0])
-    
+    total_open_opps = sum(a.open_opportunities for a in data.accounts)
+    total_closed_won = sum(a.closed_won for a in data.accounts)
+    total_closed_lost = sum(a.closed_lost for a in data.accounts)
+
     return {
         "total_accounts": data.total_count,
         "total_pipeline": total_pipeline,
@@ -221,6 +224,9 @@ async def get_summary_stats(
         "total_website_sessions": total_sessions,
         "total_form_submissions": total_submissions,
         "accounts_with_open_opportunities": accounts_with_opps,
+        "total_open_opportunities": total_open_opps,
+        "total_closed_won": total_closed_won,
+        "total_closed_lost": total_closed_lost,
         "avg_contacts_per_account": total_contacts / data.total_count if data.total_count > 0 else 0,
         "last_synced": data.last_synced
     }
