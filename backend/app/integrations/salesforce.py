@@ -100,27 +100,29 @@ class SalesforceClient:
             logger.error(f"Error fetching contacts for account {account_id}: {e}")
             raise
 
-    async def get_contacts_count_by_account(self) -> Dict[str, int]:
+        async def get_contacts_count_by_account(self) -> Dict[str, int]:
         """Get contact counts grouped by account"""
         sf = self._get_client()
-
+        # Use query() not query_all() - aggregate queries don't support pagination
+        # LIMIT 2000 is Salesforce's max for aggregate queries
         query = """
             SELECT AccountId, COUNT(Id) contactCount
             FROM Contact
             WHERE AccountId != null AND IsDeleted = false
             GROUP BY AccountId
+            LIMIT 2000
         """
-
         try:
-            result = sf.query_all(query)
+            result = sf.query(query)
             return {
                 record['AccountId']: record['contactCount']
                 for record in result.get('records', [])
             }
         except SalesforceError as e:
             logger.error(f"Error fetching contact counts: {e}")
-            raise
-
+            # Return empty dict instead of failing - graceful degradation
+            return {}
+    
     async def get_opportunities_by_account(self, account_id: str) -> List[Opportunity]:
         """Fetch all opportunities for a specific account"""
         sf = self._get_client()
