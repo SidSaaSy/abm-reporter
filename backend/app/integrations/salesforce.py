@@ -156,59 +156,60 @@ class SalesforceClient:
             raise
 
     async def get_opportunity_summary(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Get opportunity summary grouped by account
-        Returns: {account_id: {open_opps, closed_won, closed_lost, pipeline_value}}
-        """
-        sf = self._get_client()
-        
-        # Query all opportunities (non-aggregate) - this supports pagination
-        query = """
-            SELECT Id, AccountId, Amount, IsClosed, IsWon
-            FROM Opportunity
-            WHERE AccountId != null
-        """
-        
-        try:
-            result = sf.query_all(query)
-            opportunities = result.get('records', [])
-            logger.info(f"Fetched {len(opportunities)} opportunities from Salesforce")
-            
-            # Aggregate in Python
-            summary = {}
-            
-            for opp in opportunities:
-                account_id = opp.get('AccountId')
-                if not account_id:
-                    continue
-                    
-                if account_id not in summary:
-                    summary[account_id] = {
-                        'open_opps': 0,
-                        'pipeline_value': 0,
-                        'closed_won': 0,
-                        'closed_lost': 0
-                    }
-                
-                is_closed = opp.get('IsClosed', False)
-                is_won = opp.get('IsWon', False)
-                amount = opp.get('Amount') or 0
-                
-                if not is_closed:
-                    summary[account_id]['open_opps'] += 1
-                    summary[account_id]['pipeline_value'] += amount
-                elif is_won:
-                    summary[account_id]['closed_won'] += 1
-                else:
-                    summary[account_id]['closed_lost'] += 1
-            
-            logger.info(f"Aggregated opportunities for {len(summary)} accounts")
-            return summary
-            
-        except SalesforceError as e:
-            logger.error(f"Error fetching opportunity summary: {e}")
-            return {}
+    """
+    Get opportunity summary grouped by account
+    Returns: {account_id: {open_opps, closed_won, closed_lost, pipeline_value}}
+    Open = any stage EXCEPT 'Closed Won' or 'Closed Lost'
+    """
+    sf = self._get_client()
 
+    # Query all opportunities (non-aggregate) - this supports pagination
+    query = """
+        SELECT Id, AccountId, Amount, StageName
+        FROM Opportunity
+        WHERE AccountId != null
+    """
+
+    try:
+        result = sf.query_all(query)
+        opportunities = result.get('records', [])
+        logger.info(f"Fetched {len(opportunities)} opportunities from Salesforce")
+
+        # Aggregate in Python
+        summary = {}
+
+        for opp in opportunities:
+            account_id = opp.get('AccountId')
+            if not account_id:
+                continue
+
+            if account_id not in summary:
+                summary[account_id] = {
+                    'open_opps': 0,
+                    'pipeline_value': 0,
+                    'closed_won': 0,
+                    'closed_lost': 0
+                }
+
+            stage_name = opp.get('StageName', '')
+            amount = opp.get('Amount') or 0
+
+            # Open = any stage except Closed Won or Closed Lost
+            if stage_name == 'Closed Won':
+                summary[account_id]['closed_won'] += 1
+            elif stage_name == 'Closed Lost':
+                summary[account_id]['closed_lost'] += 1
+            else:
+                # Any other stage is considered "open"
+                summary[account_id]['open_opps'] += 1
+                summary[account_id]['pipeline_value'] += amount
+
+        logger.info(f"Aggregated opportunities for {len(summary)} accounts")
+        return summary
+
+    except SalesforceError as e:
+        logger.error(f"Error fetching opportunity summary: {e}")
+        return {}
     async def search_accounts_by_domain(self, domain: str) -> List[Dict[str, Any]]:
         """Search for accounts by website domain"""
         sf = self._get_client()
